@@ -659,6 +659,20 @@
     </div>
 
     <div class="card" style="margin-top: 12px;">
+      <div class="card-title">API 使用費用估算</div>
+      <div style="font-size: 13px; line-height: 2.2; color: var(--muted);">
+        <div>Input tokens：<strong id="costInputTokens" style="color:var(--text)">0</strong></div>
+        <div>Output tokens：<strong id="costOutputTokens" style="color:var(--text)">0</strong></div>
+        <div style="border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px;">
+          累積費用：<strong id="costUSD" style="color:var(--yellow)">$0.000 USD</strong>
+          <span style="font-size: 12px; margin-left: 6px;" id="costTWD">≈ NT$0</span>
+        </div>
+        <div style="font-size: 11px; margin-top: 2px;">費率：Input $0.1 / Output $0.4（per 1M tokens）</div>
+      </div>
+      <button class="btn btn-secondary" style="width:100%; margin-top: 12px; font-size: 12px;" onclick="resetCost()">重置費用計算</button>
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
       <div class="card-title">帳號</div>
       <button class="btn btn-secondary" style="width:100%; margin-bottom: 8px;" onclick="doSignOut()">
         登出 Google 帳號
@@ -706,6 +720,8 @@ const S = {
   todayMin: +localStorage.getItem('ec_today') || 0,
   lastDate: localStorage.getItem('ec_date') || '',
   streak: +localStorage.getItem('ec_streak') || 0,
+  totalInputTokens: +localStorage.getItem('ec_input_tokens') || 0,
+  totalOutputTokens: +localStorage.getItem('ec_output_tokens') || 0,
   curPage: 'loginPage',
   sessionStart: null,
   drillScenario: 'pm-meeting',
@@ -1006,7 +1022,7 @@ async function callGemini(systemPrompt, userMessage, history = []) {
   }
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${S.apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${S.apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1022,6 +1038,14 @@ async function callGemini(systemPrompt, userMessage, history = []) {
     throw new Error(e.error?.message || `HTTP ${res.status}`);
   }
   const data = await res.json();
+  // Track token usage
+  if (data.usageMetadata) {
+    S.totalInputTokens += data.usageMetadata.promptTokenCount || 0;
+    S.totalOutputTokens += data.usageMetadata.candidatesTokenCount || 0;
+    localStorage.setItem('ec_input_tokens', S.totalInputTokens);
+    localStorage.setItem('ec_output_tokens', S.totalOutputTokens);
+    updateCostUI();
+  }
   return data.candidates[0].content.parts[0].text;
 }
 
@@ -1244,6 +1268,7 @@ function showPage(pageId) {
     document.getElementById('settingsStreakVal').textContent = S.streak + ' ' + t('days');
     document.getElementById('settingsPhaseVal').textContent = getPhase();
     if (S.user) updateUserUI(S.user);
+    updateCostUI();
   }
 }
 
@@ -1316,6 +1341,30 @@ function checkDate() {
     S.todayMin = 0; S.lastDate = today;
     saveProgress();
   }
+}
+
+function updateCostUI() {
+  const inputCost = (S.totalInputTokens / 1_000_000) * 0.10;
+  const outputCost = (S.totalOutputTokens / 1_000_000) * 0.40;
+  const totalUSD = inputCost + outputCost;
+  const totalTWD = totalUSD * 32;
+  const inputEl = document.getElementById('costInputTokens');
+  const outputEl = document.getElementById('costOutputTokens');
+  const usdEl = document.getElementById('costUSD');
+  const twdEl = document.getElementById('costTWD');
+  if (inputEl) inputEl.textContent = S.totalInputTokens.toLocaleString();
+  if (outputEl) outputEl.textContent = S.totalOutputTokens.toLocaleString();
+  if (usdEl) usdEl.textContent = `$${totalUSD.toFixed(4)} USD`;
+  if (twdEl) twdEl.textContent = `≈ NT$${totalTWD.toFixed(1)}`;
+}
+
+function resetCost() {
+  if (!confirm('確定要重置費用計算嗎？')) return;
+  S.totalInputTokens = 0; S.totalOutputTokens = 0;
+  localStorage.setItem('ec_input_tokens', 0);
+  localStorage.setItem('ec_output_tokens', 0);
+  updateCostUI();
+  showToast('費用計算已重置');
 }
 
 function resetProgress() {
