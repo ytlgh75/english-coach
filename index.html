@@ -997,8 +997,13 @@ Start with a warm intro and easy opening question.`;
 // ============================================================
 async function callGemini(systemPrompt, userMessage, history = []) {
   const contents = [];
-  history.forEach(m => contents.push({ role: m.role, parts: [{ text: m.content }] }));
-  contents.push({ role: 'user', parts: [{ text: userMessage }] });
+  // Prepend system prompt to first user message for compatibility
+  if (history.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: `[INSTRUCTIONS - follow these throughout our conversation]\n${systemPrompt}\n\n[BEGIN]\n${userMessage}` }] });
+  } else {
+    history.forEach(m => contents.push({ role: m.role, parts: [{ text: m.content }] }));
+    contents.push({ role: 'user', parts: [{ text: userMessage }] });
+  }
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${S.apiKey}`,
@@ -1006,7 +1011,6 @@ async function callGemini(systemPrompt, userMessage, history = []) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
         contents,
         generationConfig: { temperature: 0.82, maxOutputTokens: 1200 }
       })
