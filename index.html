@@ -733,6 +733,9 @@ const S = {
   activeRecordMode: null,
   lastAIText: '',
   user: null,
+  responseTimerInterval: null,
+  responseStart: null,
+  activeTimerMode: null,
 };
 
 // ============================================================
@@ -1101,6 +1104,8 @@ async function sendMessage(mode) {
   if (!text) return;
   if (!S.apiKey) { showToast('請先設定 API Key'); return; }
 
+  stopResponseTimer();
+
   const msgId = `${mode}Messages`;
   addMsg(msgId, 'user', text);
   S.conv[mode].push({ role: 'user', content: text });
@@ -1116,6 +1121,7 @@ async function sendMessage(mode) {
     S.lastAIText = reply;
     addMsg(msgId, 'ai', reply, mode === 'drill');
     S.conv[mode].push({ role: 'model', content: reply });
+    autoSpeak(reply, mode);
   } catch (err) {
     removeLoading();
     addMsg(msgId, 'ai', `❌ Error: ${err.message}`);
@@ -1127,6 +1133,7 @@ async function sendMessage(mode) {
 // ============================================================
 async function startDrill() {
   S.conv.drill = [];
+  stopResponseTimer();
   document.getElementById('drillMessages').innerHTML = '';
   const names = {
     'pm-meeting': 'a PM team meeting',
@@ -1142,11 +1149,13 @@ async function startDrill() {
     S.lastAIText = reply;
     addMsg('drillMessages', 'ai', reply);
     S.conv.drill.push({ role: 'model', content: reply });
+    autoSpeak(reply, 'drill');
   } catch (err) { removeLoading(); addMsg('drillMessages', 'ai', `❌ ${err.message}`); }
 }
 
 async function startSmallTalk() {
   S.conv.smalltalk = [];
+  stopResponseTimer();
   document.getElementById('smalltalkMessages').innerHTML = '';
   addLoading('smalltalkMessages');
   try {
@@ -1155,11 +1164,13 @@ async function startSmallTalk() {
     S.lastAIText = reply;
     addMsg('smalltalkMessages', 'ai', reply);
     S.conv.smalltalk.push({ role: 'model', content: reply });
+    autoSpeak(reply, 'smalltalk');
   } catch (err) { removeLoading(); addMsg('smalltalkMessages', 'ai', `❌ ${err.message}`); }
 }
 
 async function startFree() {
   S.conv.free = [];
+  stopResponseTimer();
   document.getElementById('freeMessages').innerHTML = '';
   addLoading('freeMessages');
   try {
@@ -1168,6 +1179,7 @@ async function startFree() {
     S.lastAIText = reply;
     addMsg('freeMessages', 'ai', reply);
     S.conv.free.push({ role: 'model', content: reply });
+    autoSpeak(reply, 'free');
   } catch (err) { removeLoading(); addMsg('freeMessages', 'ai', `❌ ${err.message}`); }
 }
 
@@ -1208,6 +1220,7 @@ function startVoice(mode) {
   const status = document.getElementById(`${mode}VoiceStatus`);
   const input = document.getElementById(`${mode}Input`);
 
+  stopResponseTimer();
   btn.classList.add('recording'); btn.textContent = '⏹️';
   S.isRecording = true; S.activeRecordMode = mode; S.recognition = rec;
   if (status) status.textContent = t('listening');
@@ -1243,6 +1256,86 @@ function speakLast() {
   const voices = speechSynthesis.getVoices();
   const engVoice = voices.find(v => v.lang.startsWith('en-'));
   if (engVoice) u.voice = engVoice;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+// ============================================================
+// RESPONSE TIMER
+// ============================================================
+function startResponseTimer(mode) {
+  stopResponseTimer(false);
+  S.responseStart = Date.now();
+  S.activeTimerMode = mode;
+  const statusEl = document.getElementById(`${mode}VoiceStatus`);
+  let tick = 0;
+  S.responseTimerInterval = setInterval(() => {
+    if (!S.responseStart) return;
+    tick++;
+    const elapsed = Math.floor((Date.now() - S.responseStart) / 1000);
+    const m = Math.floor(elapsed / 60);
+    const s = elapsed % 60;
+    const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
+    let color = '#34d399';
+    if (elapsed >= 8) color = '#fbbf24';
+    if (elapsed >= 15) color = '#f87171';
+    const pulse = elapsed >= 8 ? `animation:pulse 1s infinite;display:inline-block;` : '';
+    if (statusEl) statusEl.innerHTML =
+      `<span style="color:${color};font-size:15px;font-weight:800;${pulse}">⏱ ${timeStr}</span>`
+      + `<span style="color:var(--muted);font-size:11px;margin-left:8px;">${elapsed < 8 ? '輪到你了' : elapsed < 15 ? '⚡ 快說！' : '🔴 挑戰自己！'}</span>`;
+  }, 1000);
+}
+
+function stopResponseTimer(clearDisplay = true) {
+  if (S.responseTimerInterval) {
+    clearInterval(S.responseTimerInterval);
+    S.responseTimerInterval = null;
+  }
+  S.responseStart = null;
+  if (clearDisplay && S.activeTimerMode) {
+    const el = document.getElementById(`${S.activeTimerMode}VoiceStatus`);
+    if (el) el.textContent = '';
+  }
+  S.activeTimerMode = null;
+}
+
+// ============================================================
+// AUTO SPEAK (AI 回應後自動朗讀)
+// ============================================================
+function autoSpeak(text, mode) {
+  let clean = text
+    .replace(/[✅💡🔤📝🌟🎯❌⭐🔊]/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[提示[^\]]*\]/g, '')
+    .replace(/\[💡[^\]]*\]/g, '')
+    .trim();
+
+  const paras = clean.split('\n').map(l => l.trim()).filter(l => l.length > 4);
+
+  if (mode === 'drill') {
+    // 朗讀前 2 段（提示題目）
+    clean = paras.slice(0, 2).join(' ');
+    if (clean.length > 260) clean = clean.substring(0, 260);
+  } else {
+    // smalltalk / free：朗讀前 3 句話
+    const sentences = clean.match(/[^.!?]+[.!?]+/g) || paras;
+    clean = sentences.slice(0, 3).join(' ').trim();
+    if (clean.length > 320) clean = clean.substring(0, 320);
+  }
+
+  if (!clean) { startResponseTimer(mode); return; }
+
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = 'en-US';
+  u.rate = 0.9;
+  const voices = speechSynthesis.getVoices();
+  const engVoice = voices.find(v => v.lang === 'en-US' && v.name.toLowerCase().includes('google'))
+    || voices.find(v => v.lang.startsWith('en'));
+  if (engVoice) u.voice = engVoice;
+
+  u.onend = () => startResponseTimer(mode);
+  u.onerror = () => startResponseTimer(mode);
+
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
