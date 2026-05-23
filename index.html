@@ -736,6 +736,8 @@ const S = {
   responseTimerInterval: null,
   responseStart: null,
   activeTimerMode: null,
+  timerPaused: false,
+  timerElapsedAtPause: 0,
 };
 
 // ============================================================
@@ -1256,6 +1258,11 @@ function speakLast() {
   const voices = speechSynthesis.getVoices();
   const engVoice = voices.find(v => v.lang.startsWith('en-'));
   if (engVoice) u.voice = engVoice;
+  // 朗讀結束後，重新從 0 開始計時
+  const modeMap = { drillPage: 'drill', smalltalkPage: 'smalltalk', freePage: 'free' };
+  const mode = modeMap[S.curPage];
+  u.onend = () => { if (mode) startResponseTimer(mode, 0); };
+  stopResponseTimer();
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
@@ -1263,27 +1270,53 @@ function speakLast() {
 // ============================================================
 // RESPONSE TIMER
 // ============================================================
-function startResponseTimer(mode) {
+function renderTimerDisplay(el, elapsed) {
+  if (!el) return;
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
+  let color = '#34d399';
+  if (elapsed >= 8) color = '#fbbf24';
+  if (elapsed >= 15) color = '#f87171';
+  const pulse = elapsed >= 8 && !S.timerPaused ? 'animation:pulse 1s infinite;display:inline-block;' : '';
+  const label = S.timerPaused
+    ? '<span style="color:var(--muted);font-size:11px;margin-left:6px;">已暫停</span>'
+    : `<span style="color:var(--muted);font-size:11px;margin-left:6px;">${elapsed < 8 ? '輪到你了' : elapsed < 15 ? '⚡ 快說！' : '🔴 挑戰！'}</span>`;
+  const pauseLabel = S.timerPaused ? '▶ 繼續' : '⏸';
+  el.innerHTML =
+    `<span style="color:${color};font-size:15px;font-weight:800;${pulse}">⏱ ${timeStr}</span>`
+    + label
+    + `<button onclick="pauseResumeTimer()" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:2px 9px;border-radius:8px;font-size:12px;cursor:pointer;margin-left:10px;font-family:inherit;">${pauseLabel}</button>`;
+}
+
+function startResponseTimer(mode, fromElapsed = 0) {
   stopResponseTimer(false);
-  S.responseStart = Date.now();
+  S.timerPaused = false;
+  S.timerElapsedAtPause = 0;
   S.activeTimerMode = mode;
+  S.responseStart = Date.now() - (fromElapsed * 1000);
   const statusEl = document.getElementById(`${mode}VoiceStatus`);
-  let tick = 0;
+  renderTimerDisplay(statusEl, fromElapsed);
   S.responseTimerInterval = setInterval(() => {
-    if (!S.responseStart) return;
-    tick++;
+    if (!S.responseStart || S.timerPaused) return;
     const elapsed = Math.floor((Date.now() - S.responseStart) / 1000);
-    const m = Math.floor(elapsed / 60);
-    const s = elapsed % 60;
-    const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
-    let color = '#34d399';
-    if (elapsed >= 8) color = '#fbbf24';
-    if (elapsed >= 15) color = '#f87171';
-    const pulse = elapsed >= 8 ? `animation:pulse 1s infinite;display:inline-block;` : '';
-    if (statusEl) statusEl.innerHTML =
-      `<span style="color:${color};font-size:15px;font-weight:800;${pulse}">⏱ ${timeStr}</span>`
-      + `<span style="color:var(--muted);font-size:11px;margin-left:8px;">${elapsed < 8 ? '輪到你了' : elapsed < 15 ? '⚡ 快說！' : '🔴 挑戰自己！'}</span>`;
+    renderTimerDisplay(statusEl, elapsed);
   }, 1000);
+}
+
+function pauseResumeTimer() {
+  if (!S.activeTimerMode) return;
+  const el = document.getElementById(`${S.activeTimerMode}VoiceStatus`);
+  if (S.timerPaused) {
+    // 繼續：把 responseStart 往後移，等同扣掉暫停時間
+    S.responseStart = Date.now() - (S.timerElapsedAtPause * 1000);
+    S.timerPaused = false;
+  } else {
+    // 暫停：記錄目前秒數
+    S.timerElapsedAtPause = Math.floor((Date.now() - S.responseStart) / 1000);
+    S.timerPaused = true;
+    renderTimerDisplay(el, S.timerElapsedAtPause);
+  }
 }
 
 function stopResponseTimer(clearDisplay = true) {
@@ -1292,6 +1325,7 @@ function stopResponseTimer(clearDisplay = true) {
     S.responseTimerInterval = null;
   }
   S.responseStart = null;
+  S.timerPaused = false;
   if (clearDisplay && S.activeTimerMode) {
     const el = document.getElementById(`${S.activeTimerMode}VoiceStatus`);
     if (el) el.textContent = '';
