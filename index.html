@@ -1252,7 +1252,12 @@ function startVoice(mode) {
 
 function speakLast() {
   if (!S.lastAIText) return;
-  const clean = S.lastAIText.replace(/[✅💡🔤📝🌟🎯❌]/g, '').replace(/<[^>]+>/g, '').split('\n')[0].trim();
+  const clean = S.lastAIText
+    .replace(/[✅💡🔤📝🌟🎯❌⭐🔊]/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+    .replace(/\[提示[^\]]*\]/g, '').replace(/\[💡[^\]]*\]/g, '')
+    .trim();
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = 'en-US'; u.rate = 0.88;
   const voices = speechSynthesis.getVoices();
@@ -1340,22 +1345,9 @@ function autoSpeak(text, mode) {
   let clean = text
     .replace(/[✅💡🔤📝🌟🎯❌⭐🔊]/g, '')
     .replace(/<[^>]+>/g, '')
-    .replace(/\[提示[^\]]*\]/g, '')
-    .replace(/\[💡[^\]]*\]/g, '')
+    .replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+    .replace(/\[提示[^\]]*\]/g, '').replace(/\[💡[^\]]*\]/g, '')
     .trim();
-
-  const paras = clean.split('\n').map(l => l.trim()).filter(l => l.length > 4);
-
-  if (mode === 'drill') {
-    // 朗讀前 2 段（提示題目）
-    clean = paras.slice(0, 2).join(' ');
-    if (clean.length > 260) clean = clean.substring(0, 260);
-  } else {
-    // smalltalk / free：朗讀前 3 句話
-    const sentences = clean.match(/[^.!?]+[.!?]+/g) || paras;
-    clean = sentences.slice(0, 3).join(' ').trim();
-    if (clean.length > 320) clean = clean.substring(0, 320);
-  }
 
   if (!clean) { startResponseTimer(mode); return; }
 
