@@ -758,6 +758,7 @@ const S = {
   activeRecordMode: null,
   lastAIText: '',
   user: null,
+  voiceSendTimeout: null,
   responseTimerInterval: null,
   responseStart: null,
   activeTimerMode: null,
@@ -1204,6 +1205,12 @@ async function sendMessage(mode) {
   if (!text) return;
   if (!S.apiKey) { showToast('請先設定 API Key'); return; }
 
+  // 清掉語音倒數計時（手動送出時）
+  if (S.voiceSendTimeout) {
+    clearInterval(S.voiceSendTimeout);
+    S.voiceSendTimeout = null;
+  }
+
   // 記錄回應時間（Drill 模式才傳給 AI）
   let apiText = text;
   if (mode === 'drill' && S.responseStart && !S.timerPaused) {
@@ -1320,6 +1327,17 @@ async function endAndSummarize(mode) {
 // VOICE INPUT
 // ============================================================
 function toggleVoice(mode) {
+  // 如果正在等待確認送出，按麥克風 = 取消送出
+  if (S.voiceSendTimeout) {
+    clearInterval(S.voiceSendTimeout);
+    S.voiceSendTimeout = null;
+    const input = document.getElementById(`${mode}Input`);
+    const status = document.getElementById(`${mode}VoiceStatus`);
+    if (input) input.value = '';
+    if (status) status.textContent = '';
+    showToast('❌ 已取消，重新說一次');
+    return;
+  }
   if (S.isRecording && S.activeRecordMode === mode) {
     if (S.recognition) S.recognition.stop();
   } else { startVoice(mode); }
@@ -1353,8 +1371,30 @@ function startVoice(mode) {
   rec.onend = () => {
     btn.classList.remove('recording'); btn.textContent = '🎤';
     S.isRecording = false; S.activeRecordMode = null;
-    if (status) status.textContent = '';
-    if (input.value.trim()) sendMessage(mode);
+
+    if (input.value.trim()) {
+      // 顯示 2 秒確認倒數，讓使用者確認辨識結果
+      let count = 2;
+      const showCount = () => {
+        if (status) status.innerHTML =
+          `📝 <span style="color:var(--yellow);font-weight:700;">${count}s 後送出</span>`
+          + `<span style="color:var(--muted);font-size:11px;margin-left:6px;">辨識錯了？直接改文字，或再按 🎤 取消</span>`;
+      };
+      showCount();
+      S.voiceSendTimeout = setInterval(() => {
+        count--;
+        if (count <= 0) {
+          clearInterval(S.voiceSendTimeout);
+          S.voiceSendTimeout = null;
+          if (status) status.textContent = '';
+          if (input.value.trim()) sendMessage(mode);
+        } else {
+          showCount();
+        }
+      }, 1000);
+    } else {
+      if (status) status.textContent = '';
+    }
   };
 
   rec.onerror = () => {
