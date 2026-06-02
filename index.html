@@ -1480,6 +1480,7 @@ function startVoice(mode) {
   rec.lang = 'en-US';
   rec.continuous = false;
   rec.interimResults = true;
+  rec.maxAlternatives = 3; // 讓 API 提供多個候選，選信心最高的
 
   const btn = document.getElementById(`${mode}VoiceBtn`);
   const status = document.getElementById(`${mode}VoiceStatus`);
@@ -1490,11 +1491,35 @@ function startVoice(mode) {
   S.isRecording = true; S.activeRecordMode = mode; S.recognition = rec;
   if (status) status.textContent = t('listening');
 
+  let finalConfidence = 0;
+
   rec.onresult = (e) => {
-    const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+    let transcript = '';
+    let conf = 0;
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        // 從多個候選中選信心度最高的
+        let best = e.results[i][0];
+        for (let j = 1; j < e.results[i].length; j++) {
+          if (e.results[i][j].confidence > best.confidence) best = e.results[i][j];
+        }
+        transcript += best.transcript;
+        conf = best.confidence;
+        finalConfidence = conf;
+      } else {
+        transcript += e.results[i][0].transcript;
+      }
+    }
     input.value = transcript;
     autoResize(input);
-    if (status) status.textContent = `🎤 "${transcript}"`;
+    // 顯示信心度顏色指標
+    if (conf > 0) {
+      const pct = Math.round(conf * 100);
+      const color = conf > 0.80 ? 'var(--green)' : conf > 0.60 ? 'var(--yellow)' : 'var(--red)';
+      if (status) status.innerHTML = `🎤 <span style="color:${color};font-weight:700;">${pct}% 信心</span>　"${transcript}"`;
+    } else {
+      if (status) status.textContent = `🎤 "${transcript}"`;
+    }
   };
 
   rec.onend = () => {
@@ -1502,12 +1527,16 @@ function startVoice(mode) {
     S.isRecording = false; S.activeRecordMode = null;
 
     if (input.value.trim()) {
-      // 顯示 2 秒確認倒數，讓使用者確認辨識結果
-      let count = 2;
+      // 信心度低 → 延長確認時間到 4 秒 + 顯示警告
+      const isLowConf = finalConfidence > 0 && finalConfidence < 0.65;
+      let count = isLowConf ? 4 : 2;
+
       const showCount = () => {
+        const note = isLowConf
+          ? `<span style="color:var(--red);font-size:11px;margin-left:6px;">⚠️ 信心度低，請確認文字是否正確</span>`
+          : `<span style="color:var(--muted);font-size:11px;margin-left:6px;">辨識錯了？直接改文字，或再按 🎤 取消</span>`;
         if (status) status.innerHTML =
-          `📝 <span style="color:var(--yellow);font-weight:700;">${count}s 後送出</span>`
-          + `<span style="color:var(--muted);font-size:11px;margin-left:6px;">辨識錯了？直接改文字，或再按 🎤 取消</span>`;
+          `📝 <span style="color:var(--yellow);font-weight:700;">${count}s 後送出</span>` + note;
       };
       showCount();
       S.voiceSendTimeout = setInterval(() => {
@@ -1517,19 +1546,21 @@ function startVoice(mode) {
           S.voiceSendTimeout = null;
           if (status) status.textContent = '';
           if (input.value.trim()) sendMessage(mode);
-        } else {
-          showCount();
-        }
+        } else { showCount(); }
       }, 1000);
     } else {
       if (status) status.textContent = '';
     }
   };
 
-  rec.onerror = () => {
+  rec.onerror = (e) => {
     btn.classList.remove('recording'); btn.textContent = '🎤';
     S.isRecording = false;
-    if (status) { status.textContent = t('voiceError'); setTimeout(() => status.textContent = '', 2000); }
+    const errMsg = e.error === 'no-speech' ? '沒偵測到聲音，請再試一次'
+      : e.error === 'audio-capture' ? '無法存取麥克風'
+      : e.error === 'not-allowed' ? '請允許麥克風權限'
+      : t('voiceError');
+    if (status) { status.textContent = `❌ ${errMsg}`; setTimeout(() => status.textContent = '', 3000); }
   };
 
   rec.start();
