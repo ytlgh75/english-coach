@@ -1009,6 +1009,8 @@ TRANSFORMATION FORMAT (MAX 2 LINES):
 
 TIMING RULE: User message will include [Response time: Xs]. If X > 3, always add "⚡ Faster!" before feedback.
 
+OFF-TOPIC RULE: If Mia asks about anything unrelated to ${ctx} (sports, news, random questions, etc.), DO NOT answer it. Say: "🎯 Drill focus! Let's keep going →" and repeat the last cue.
+
 START NOW: Give base sentence with [BLANK], model one example, then first cue + [Rep 1/20].`;
     }
 
@@ -1026,7 +1028,9 @@ RESPONSE DRILL FORMAT:
    🔤 1-3 key words with IPA pronunciation
    📝 ONE grammar/usage note (1 sentence max)
 
-RULES: Short feedback. One fix at a time. Encouraging but direct. Start by giving the first prompt now.`;
+RULES: Short feedback. One fix at a time. Encouraging but direct. Start by giving the first prompt now.
+
+OFF-TOPIC RULE: If Mia asks about anything outside the ${ctx} context (sports, news, random trivia, etc.), do NOT engage with it. Respond: "🎯 Let's stay focused on [${ctx}]! [repeat your last drill prompt]"`;
     }
 
     if (S.drillType === 'transformation') {
@@ -1044,6 +1048,7 @@ YOUR RESPONSE FORMAT (MAX 3 LINES):
 After 15 reps: "🔄 New rule: [rule]. Example: [A → B]   First: [source sentence]"
 
 RULES: State the rule once clearly. No grammar lectures. Show correct version always. Sentences must fit ${ctx}. Keep pace FAST.
+OFF-TOPIC RULE: If Mia asks about anything unrelated to the drill, say: "🎯 Drill focus! [repeat last source sentence]" and continue.
 
 START: Pick the most useful transformation rule for ${ctx}. State it in 1 line with example. Give first source sentence.`;
     }
@@ -1064,6 +1069,7 @@ YOUR RESPONSE FORMAT (MAX 3 LINES):
 After 6 expansions: "🔄 New base: [short sentence]   Add: **[first cue]**"
 
 RULES: Always show FULL target sentence when confirming (Mia needs to hear it). Cues must integrate naturally into ${ctx}. No grammar talk during drill.
+OFF-TOPIC RULE: If Mia goes off-topic, say: "🎯 Stay with the drill! [repeat last cue]"
 
 START: Give a short 4-6 word base sentence relevant to ${ctx}, then first expansion cue.`;
     }
@@ -1084,6 +1090,7 @@ RULES:
 - Gradually steer toward topics Mia enjoys (crystals, meaningful work)
 - If she seems stuck, add a hint in Chinese: [提示：你可以問他...]
 - Do NOT correct grammar during conversation — let it flow
+- STAY IN SCENARIO: If Mia asks about completely unrelated topics (sports scores, random trivia, etc.), stay in character and redirect naturally: "Ha, not sure about that! But speaking of [scenario topic]..."
 
 Start the conversation now as your character.`;
   }
@@ -1101,6 +1108,7 @@ YOUR ROLE:
 - Follow her lead — go where she takes it
 - Every 4-5 exchanges, add a brief vocab note in brackets: [💡 natural way to say this: ...]
 - Don't over-correct — only note the most impactful improvements
+- TOPIC BOUNDARY: Keep conversation within ${topic}. If Mia drifts completely off-topic, redirect naturally: "That's interesting! It actually reminds me of [connection back to ${topic}]..."
 - When she says "end" or "結束", give:
   🌟 3 things she did well (specific)
   💡 3 better expressions (original → improved)
