@@ -424,6 +424,31 @@
     .user-card-info strong { display: block; font-size: 15px; }
     .user-card-info span { font-size: 12px; color: var(--muted); }
 
+    /* VOCAB VAULT */
+    .vocab-words-area {
+      display: flex; flex-wrap: wrap; gap: 7px;
+      padding: 10px 0; margin-bottom: 8px;
+      max-height: 130px; overflow-y: auto;
+    }
+    .vocab-chip {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 20px; padding: 5px 10px 5px 12px;
+      font-size: 12px; font-weight: 600;
+      display: flex; align-items: center; gap: 7px;
+      transition: all 0.2s;
+    }
+    .vocab-chip.mastered { border-color: var(--green); color: var(--green); }
+    .vocab-chip-progress { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+    .vocab-prog-bar { width: 32px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .vocab-prog-fill { height: 100%; background: var(--accent2); border-radius: 2px; transition: width 0.4s; }
+    .vocab-prog-text { font-size: 9px; color: var(--muted); }
+    .vocab-chip-remove {
+      color: var(--muted); cursor: pointer; font-size: 15px;
+      line-height: 1; padding: 0 2px; transition: color 0.2s;
+    }
+    .vocab-chip-remove:hover { color: var(--red); }
+    .vocab-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
     /* RESPONSIVE */
     @media (max-width: 480px) {
       main { padding: 14px; }
@@ -532,6 +557,13 @@
         <div class="mode-desc" id="settingsDesc">帳號、進度、API Key</div>
       </button>
     </div>
+
+    <button class="mode-btn" style="width:100%;border-color:rgba(52,211,153,0.4);" onclick="openMode('vocabPage','startVocab')">
+      <div class="mode-time" style="color:var(--green);">持續練習</div>
+      <div class="mode-icon">📚</div>
+      <div class="mode-name" style="color:var(--green);">生詞庫 Vocab Vault</div>
+      <div class="mode-desc">蒐集不會的字，聊到記起來（10 次畢業）</div>
+    </button>
 
     <div class="card">
       <div class="card-title" id="tipLabel">今日學習提示</div>
@@ -649,6 +681,51 @@
     </div>
   </div>
 
+  <!-- ===== VOCAB VAULT PAGE ===== -->
+  <div class="page" id="vocabPage">
+    <div class="chat-page">
+      <div class="chat-header">
+        <button class="back-btn" onclick="showPage('homePage')">←</button>
+        <div style="flex:1;">
+          <div class="chat-mode-title">📚 生詞庫 Vocab Vault</div>
+          <div class="chat-mode-sub">蒐集不會的字，聊到記起來（答對 10 次自動畢業）</div>
+        </div>
+        <div id="vocabCountBadge" style="background:var(--card);border:1px solid var(--green);color:var(--green);padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700;">0 字</div>
+      </div>
+
+      <!-- 單字清單 -->
+      <div class="vocab-words-area" id="vocabWordArea">
+        <span class="vocab-empty">還沒有生詞。遇到不會的字就加進來！</span>
+      </div>
+
+      <!-- 新增單字 -->
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input type="text" id="newWordInput" class="text-input"
+          placeholder="輸入不認識的單字或片語..."
+          style="min-height:42px;flex:1;"
+          onkeydown="if(event.key==='Enter'){addVocabWord();}" />
+        <button class="btn btn-primary" style="width:auto;padding:0 18px;min-height:42px;" onclick="addVocabWord()">+ 加入</button>
+      </div>
+
+      <!-- AI 對話 -->
+      <div class="chat-messages" id="vocabMessages"></div>
+
+      <div class="input-area">
+        <div class="voice-status" id="vocabVoiceStatus"></div>
+        <div class="input-row">
+          <textarea class="text-input" id="vocabInput" placeholder="和 AI 聊天，練習這些單字..." rows="1"
+            onkeydown="handleEnter(event,'vocab')" oninput="autoResize(this)"></textarea>
+          <button class="icon-btn voice-btn" id="vocabVoiceBtn" onclick="toggleVoice('vocab')">🎤</button>
+          <button class="icon-btn send-btn" onclick="sendMessage('vocab')">↑</button>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-secondary btn-sm" onclick="startVocab()">🔄 新對話</button>
+          <button class="btn btn-secondary btn-sm" onclick="endAndSummarize('vocab')">📋 結束看總結</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== SETTINGS PAGE ===== -->
   <div class="page" id="settingsPage">
     <div class="chat-header" style="margin-bottom: 20px;">
@@ -752,7 +829,8 @@ const S = {
   drillScenario: 'pm-meeting',
   smalltalkScenario: 'australia-market',
   freeScenario: 'crystals',
-  conv: { drill: [], smalltalk: [], free: [] },
+  conv: { drill: [], smalltalk: [], free: [], vocab: [] },
+  vocab: [], // [{id, word, correctCount, mastered}]
   recognition: null,
   isRecording: false,
   activeRecordMode: null,
@@ -800,6 +878,9 @@ auth.onAuthStateChanged(async (user) => {
       const docSnap = await db.collection('users').doc(user.uid).get();
       if (docSnap.exists && docSnap.data().geminiKey) {
         S.apiKey = docSnap.data().geminiKey;
+        // Load vocab list
+        S.vocab = docSnap.data().vocab || [];
+        renderVocabWords();
         checkDate();
         applyLang();
         updateProgressUI();
@@ -1117,6 +1198,33 @@ YOUR ROLE:
 
 Start with a warm intro and easy opening question.`;
   }
+  if (mode === 'vocab') {
+    const activeWords = S.vocab.filter(v => !v.mastered);
+    const wordList = activeWords.length
+      ? activeWords.map(v => `"${v.word}" (${v.correctCount}/10)`).join(', ')
+      : '（目前清單是空的，請提醒 Mia 加入她不認識的字）';
+    return `You are Mia's Vocabulary Coach — a friendly PM colleague helping her master specific English words through natural conversation.
+
+Mia: Taiwanese PM, IELTS 5.5, learning English for PM work and Australia crystal purchasing.
+
+Active vocabulary list: ${wordList}
+
+YOUR APPROACH:
+1. Have natural 2-4 sentence conversations about PM work, crystals, or daily topics
+2. Weave the target words naturally INTO your own sentences so she hears them in context
+3. Every 3-4 turns, invite her to use one word: "Can you use '[word]' in a sentence here?"
+4. When she uses a target word CORRECTLY in her own message, add at the end: [VOCAB_USED: word1, word2]
+5. If she uses a word incorrectly, gently show the correct usage without making her feel bad
+6. Say "[🎓 '[word]' — you've got it down!]" when a word is close to mastered
+
+IMPORTANT FORMAT RULE: End EVERY AI response with one of:
+- [VOCAB_USED: word1, word2]   ← if she used vocab words correctly
+- [VOCAB_USED: none]           ← if no vocab words used this turn
+(This tag will be hidden from display — it's for tracking only)
+
+MENTOR RULE: If Mia says she doesn't understand something, switch to simple explanation mode. Use everyday analogies. Get her to "at the same page" before continuing.`;
+  }
+
   return '';
 }
 
@@ -1127,7 +1235,7 @@ async function callGemini(systemPrompt, userMessage, history = []) {
   const contents = [];
   // Prepend system prompt to first user message for compatibility
   if (history.length === 0) {
-    contents.push({ role: 'user', parts: [{ text: `[INSTRUCTIONS - follow these throughout our conversation]\n${systemPrompt}\n\n[BEGIN]\n${userMessage}` }] });
+    contents.push({ role: 'user', parts: [{ text: `[INSTRUCTIONS - follow these throughout our conversation]\n${systemPrompt}\n\n[GLOBAL MENTOR RULE] If at any point Mia says she doesn't understand something (e.g. "I don't understand", "what does X mean", "can you explain", "huh?", "聽不懂", "不懂"), pause the current activity. Explain clearly in simple everyday English using analogies — like a PM colleague/mentor helping a partner get "at the same page". Resume only after she confirms she understands.\n\n[BEGIN]\n${userMessage}` }] });
   } else {
     history.forEach(m => contents.push({ role: m.role, parts: [{ text: m.content }] }));
     contents.push({ role: 'user', parts: [{ text: userMessage }] });
@@ -1237,12 +1345,19 @@ async function sendMessage(mode) {
   addLoading(msgId);
   try {
     const history = S.conv[mode].slice(-10, -1);
-    const scenario = mode === 'drill' ? S.drillScenario : mode === 'smalltalk' ? S.smalltalkScenario : S.freeScenario;
+    const scenario = mode === 'drill' ? S.drillScenario
+      : mode === 'smalltalk' ? S.smalltalkScenario
+      : mode === 'vocab' ? 'vocab'
+      : S.freeScenario;
     const reply = await callGemini(getSystemPrompt(mode, scenario), apiText, history);
     removeLoading();
-    S.lastAIText = reply;
-    addMsg(msgId, 'ai', reply, mode === 'drill');
+    // 隱藏 VOCAB_USED 標記，再顯示訊息
+    const displayReply = reply.replace(/\[VOCAB_USED:[^\]]*\]/g, '').trim();
+    S.lastAIText = displayReply;
+    addMsg(msgId, 'ai', displayReply, mode === 'drill');
     S.conv[mode].push({ role: 'model', content: reply });
+    // Vocab 分數解析
+    if (mode === 'vocab') parseVocabScore(reply);
     // Drill rep counter
     if (mode === 'drill') {
       S.drillReps++;
@@ -1543,7 +1658,7 @@ function showPage(pageId) {
   document.getElementById(pageId).classList.add('active');
   S.curPage = pageId;
 
-  if (['drillPage','smalltalkPage','freePage'].includes(pageId)) S.sessionStart = Date.now();
+  if (['drillPage','smalltalkPage','freePage','vocabPage'].includes(pageId)) S.sessionStart = Date.now();
 
   if (pageId === 'settingsPage') {
     document.getElementById('settingsApiKey').value = S.apiKey;
@@ -1728,6 +1843,113 @@ function loadDailyTip() {
   const tips = TIPS[S.lang];
   const idx = new Date().getDate() % tips.length;
   document.getElementById('dailyTip').textContent = tips[idx];
+}
+
+// ============================================================
+// VOCAB VAULT
+// ============================================================
+async function saveVocab() {
+  if (!S.user) return;
+  await db.collection('users').doc(S.user.uid).set({ vocab: S.vocab }, { merge: true });
+}
+
+function renderVocabWords() {
+  const area = document.getElementById('vocabWordArea');
+  const badge = document.getElementById('vocabCountBadge');
+  if (!area) return;
+  const active = S.vocab.filter(v => !v.mastered);
+  if (badge) badge.textContent = `${active.length} 字`;
+  if (S.vocab.length === 0) {
+    area.innerHTML = '<span class="vocab-empty">還沒有生詞。遇到不會的字就加進來！</span>';
+    return;
+  }
+  area.innerHTML = S.vocab.map(v => {
+    const pct = Math.min((v.correctCount / 10) * 100, 100);
+    const masteredClass = v.mastered ? ' mastered' : '';
+    return `<div class="vocab-chip${masteredClass}">
+      <span>${v.mastered ? '🎓 ' : ''}${v.word}</span>
+      <div class="vocab-chip-progress">
+        <div class="vocab-prog-bar"><div class="vocab-prog-fill" style="width:${pct}%"></div></div>
+        <div class="vocab-prog-text">${v.correctCount}/10</div>
+      </div>
+      <span class="vocab-chip-remove" onclick="removeVocabWord('${v.id}')">×</span>
+    </div>`;
+  }).join('');
+}
+
+async function addVocabWord() {
+  const input = document.getElementById('newWordInput');
+  const word = input.value.trim();
+  if (!word) return;
+  // 防止重複
+  if (S.vocab.find(v => v.word.toLowerCase() === word.toLowerCase())) {
+    showToast('這個字已經在清單裡了');
+    return;
+  }
+  const entry = { id: Date.now().toString(), word, correctCount: 0, mastered: false };
+  S.vocab.push(entry);
+  input.value = '';
+  renderVocabWords();
+  await saveVocab();
+  showToast(`✅ "${word}" 已加入生詞庫`);
+  // 如果正在 vocab 頁面，刷新對話提示
+  if (S.curPage === 'vocabPage' && S.conv.vocab.length > 0) {
+    showToast(`💡 新增了「${word}」，AI 下次對話會練這個字`);
+  }
+}
+
+async function removeVocabWord(id) {
+  const entry = S.vocab.find(v => v.id === id);
+  if (!entry) return;
+  if (!confirm(`確定要從生詞庫移除「${entry.word}」嗎？`)) return;
+  S.vocab = S.vocab.filter(v => v.id !== id);
+  renderVocabWords();
+  await saveVocab();
+  showToast(`已移除「${entry.word}」`);
+}
+
+function parseVocabScore(replyText) {
+  const match = replyText.match(/\[VOCAB_USED:\s*([^\]]+)\]/i);
+  if (!match) return;
+  const words = match[1].split(',').map(w => w.trim().toLowerCase());
+  if (words.length === 1 && words[0] === 'none') return;
+  let updated = false;
+  words.forEach(used => {
+    const entry = S.vocab.find(v => v.word.toLowerCase() === used && !v.mastered);
+    if (entry) {
+      entry.correctCount++;
+      if (entry.correctCount >= 10) {
+        entry.mastered = true;
+        setTimeout(() => showToast(`🎓 "${entry.word}" 已掌握！恭喜畢業！`), 500);
+      }
+      updated = true;
+    }
+  });
+  if (updated) {
+    renderVocabWords();
+    saveVocab();
+  }
+}
+
+async function startVocab() {
+  S.conv.vocab = [];
+  stopResponseTimer();
+  document.getElementById('vocabMessages').innerHTML = '';
+  if (S.vocab.filter(v => !v.mastered).length === 0) {
+    addMsg('vocabMessages', 'ai', '📚 生詞庫是空的！先把你不認識的單字加進來，我就可以幫你練習了。');
+    return;
+  }
+  addLoading('vocabMessages');
+  try {
+    const reply = await callGemini(getSystemPrompt('vocab', 'vocab'),
+      'Start a natural conversation to practice my vocabulary words. Keep it short and friendly.', []);
+    removeLoading();
+    const display = reply.replace(/\[VOCAB_USED:[^\]]*\]/g, '').trim();
+    S.lastAIText = display;
+    addMsg('vocabMessages', 'ai', display);
+    S.conv.vocab.push({ role: 'model', content: reply });
+    autoSpeak(display, 'vocab');
+  } catch (err) { removeLoading(); addMsg('vocabMessages', 'ai', `❌ ${err.message}`); }
 }
 
 // Init voices for TTS
