@@ -354,6 +354,14 @@
       flex-shrink: 0;
     }
     .voice-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+    .voice-mode-btn {
+      width: 36px; height: 46px; border-radius: 12px; flex-shrink: 0;
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--muted); cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .voice-mode-btn.manual { border-color: var(--yellow); color: var(--yellow); }
     .voice-btn.recording { background: var(--red); border-color: var(--red); animation: pulse 1s infinite; }
     @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
     .send-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #000; font-weight: 700; }
@@ -602,6 +610,7 @@
         <div class="input-row">
           <textarea class="text-input" id="drillInput" placeholder="Type or tap mic to speak..." rows="1"
             onkeydown="handleEnter(event,'drill')" oninput="autoResize(this)"></textarea>
+          <button class="voice-mode-btn voice-auto-toggle" onclick="toggleVoiceAutoSend()" title="切換：自動/手動送出">🤖</button>
           <button class="icon-btn voice-btn" id="drillVoiceBtn" onclick="toggleVoice('drill')">🎤</button>
           <button class="icon-btn send-btn" onclick="sendMessage('drill')">↑</button>
         </div>
@@ -636,6 +645,7 @@
         <div class="input-row">
           <textarea class="text-input" id="smalltalkInput" placeholder="Reply in English..." rows="1"
             onkeydown="handleEnter(event,'smalltalk')" oninput="autoResize(this)"></textarea>
+          <button class="voice-mode-btn voice-auto-toggle" onclick="toggleVoiceAutoSend()" title="切換：自動/手動送出">🤖</button>
           <button class="icon-btn voice-btn" id="smalltalkVoiceBtn" onclick="toggleVoice('smalltalk')">🎤</button>
           <button class="icon-btn send-btn" onclick="sendMessage('smalltalk')">↑</button>
         </div>
@@ -670,6 +680,7 @@
         <div class="input-row">
           <textarea class="text-input" id="freeInput" placeholder="Talk in English..." rows="1"
             onkeydown="handleEnter(event,'free')" oninput="autoResize(this)"></textarea>
+          <button class="voice-mode-btn voice-auto-toggle" onclick="toggleVoiceAutoSend()" title="切換：自動/手動送出">🤖</button>
           <button class="icon-btn voice-btn" id="freeVoiceBtn" onclick="toggleVoice('free')">🎤</button>
           <button class="icon-btn send-btn" onclick="sendMessage('free')">↑</button>
         </div>
@@ -715,6 +726,7 @@
         <div class="input-row">
           <textarea class="text-input" id="vocabInput" placeholder="和 AI 聊天，練習這些單字..." rows="1"
             onkeydown="handleEnter(event,'vocab')" oninput="autoResize(this)"></textarea>
+          <button class="voice-mode-btn voice-auto-toggle" onclick="toggleVoiceAutoSend()" title="切換：自動/手動送出">🤖</button>
           <button class="icon-btn voice-btn" id="vocabVoiceBtn" onclick="toggleVoice('vocab')">🎤</button>
           <button class="icon-btn send-btn" onclick="sendMessage('vocab')">↑</button>
         </div>
@@ -837,6 +849,7 @@ const S = {
   lastAIText: '',
   user: null,
   voiceSendTimeout: null,
+  voiceAutoSend: localStorage.getItem('ec_voice_auto') !== 'false',
   responseTimerInterval: null,
   responseStart: null,
   activeTimerMode: null,
@@ -1527,27 +1540,39 @@ function startVoice(mode) {
     S.isRecording = false; S.activeRecordMode = null;
 
     if (input.value.trim()) {
-      // 信心度低 → 延長確認時間到 4 秒 + 顯示警告
       const isLowConf = finalConfidence > 0 && finalConfidence < 0.65;
-      let count = isLowConf ? 4 : 2;
+      const confColor = finalConfidence > 0.8 ? 'var(--green)' : finalConfidence > 0.6 ? 'var(--yellow)' : 'var(--red)';
+      const confBadge = finalConfidence > 0
+        ? `<span style="color:${confColor};font-weight:700;">${Math.round(finalConfidence * 100)}% 信心</span>　`
+        : '';
 
-      const showCount = () => {
-        const note = isLowConf
-          ? `<span style="color:var(--red);font-size:11px;margin-left:6px;">⚠️ 信心度低，請確認文字是否正確</span>`
-          : `<span style="color:var(--muted);font-size:11px;margin-left:6px;">辨識錯了？直接改文字，或再按 🎤 取消</span>`;
+      if (S.voiceAutoSend) {
+        // ── 自動模式：倒數後送出 ──
+        let count = isLowConf ? 4 : 2;
+        const showCount = () => {
+          const note = isLowConf
+            ? `<span style="color:var(--red);font-size:11px;">⚠️ 信心度低，請確認</span>`
+            : `<span style="color:var(--muted);font-size:11px;">可改文字，或按 🎤 取消</span>`;
+          if (status) status.innerHTML =
+            `${confBadge}📝 <span style="color:var(--yellow);font-weight:700;">${count}s 後送出</span>　${note}`;
+        };
+        showCount();
+        S.voiceSendTimeout = setInterval(() => {
+          count--;
+          if (count <= 0) {
+            clearInterval(S.voiceSendTimeout);
+            S.voiceSendTimeout = null;
+            if (status) status.textContent = '';
+            if (input.value.trim()) sendMessage(mode);
+          } else { showCount(); }
+        }, 1000);
+      } else {
+        // ── 手動模式：顯示結果 + 重錄按鈕，等待自行送出 ──
+        const warn = isLowConf ? `　<span style="color:var(--red);font-size:11px;">⚠️ 信心度低</span>` : '';
         if (status) status.innerHTML =
-          `📝 <span style="color:var(--yellow);font-weight:700;">${count}s 後送出</span>` + note;
-      };
-      showCount();
-      S.voiceSendTimeout = setInterval(() => {
-        count--;
-        if (count <= 0) {
-          clearInterval(S.voiceSendTimeout);
-          S.voiceSendTimeout = null;
-          if (status) status.textContent = '';
-          if (input.value.trim()) sendMessage(mode);
-        } else { showCount(); }
-      }, 1000);
+          `${confBadge}辨識完成${warn}　`
+          + `<button onclick="reRecordVoice('${mode}')" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:2px 10px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit;">🔄 重錄</button>`;
+      }
     } else {
       if (status) status.textContent = '';
     }
@@ -1564,6 +1589,36 @@ function startVoice(mode) {
   };
 
   rec.start();
+}
+
+function toggleVoiceAutoSend() {
+  S.voiceAutoSend = !S.voiceAutoSend;
+  localStorage.setItem('ec_voice_auto', S.voiceAutoSend);
+  updateVoiceToggleUI();
+  showToast(S.voiceAutoSend ? '🤖 自動送出：開' : '✋ 手動送出：開（自己按送出鍵）');
+}
+
+function updateVoiceToggleUI() {
+  document.querySelectorAll('.voice-auto-toggle').forEach(btn => {
+    if (S.voiceAutoSend) {
+      btn.textContent = '🤖';
+      btn.classList.remove('manual');
+      btn.title = '目前：自動送出　點擊切換為手動';
+    } else {
+      btn.textContent = '✋';
+      btn.classList.add('manual');
+      btn.title = '目前：手動送出　點擊切換為自動';
+    }
+  });
+}
+
+function reRecordVoice(mode) {
+  // 清掉目前辨識結果，重新錄音
+  const input = document.getElementById(`${mode}Input`);
+  const status = document.getElementById(`${mode}VoiceStatus`);
+  if (input) input.value = '';
+  if (status) status.textContent = '';
+  startVoice(mode);
 }
 
 function speakLast() {
@@ -1988,6 +2043,9 @@ async function startVocab() {
     autoSpeak(display, 'vocab');
   } catch (err) { removeLoading(); addMsg('vocabMessages', 'ai', `❌ ${err.message}`); }
 }
+
+// 初始化語音模式 UI
+updateVoiceToggleUI();
 
 // Init voices for TTS
 speechSynthesis.getVoices();
